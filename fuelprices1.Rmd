@@ -1,0 +1,138 @@
+---
+title: "Fuel prices in NSW - Part 1"
+author: "Remko Duursma"
+date: "19 December 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Getting the Data
+
+The FuelCheck service in New South Wales, Australia, provides real-time data on fuel prices at service stations across the state. [This page](https://data.nsw.gov.au/data/dataset/fuel-check) contains information, as well as monthly files containing fuel prices for all service stations, for all fuel types. The first step is to download all `xlsx` files, and save them locally. We then use `readxl` to read them all, and `dplyr` to tidy things up.
+
+```{r, eval=FALSE}
+library(readxl)
+library(dplyr)
+library(lubridate)
+
+# The workbooks come in two formats; write a custom function that can
+# read both. Here I just check if the names look OK (if not, it shows up as 'X__1').
+readx <- function(x){
+  res <-  read_excel(x)
+  if(names(res)[2] == "X__1"){
+    res <-  read_excel(x, skip=1)   
+  }
+  
+  res <- mutate(res, Postcode  = as.numeric(Postcode))
+  if("FuelType" %in% names(res)){
+    res <- rename(res, FuelCode = FuelType)
+  }
+  
+return(res)
+}
+
+fuel <- lapply(dir("rawdata", pattern="xlsx", full.names = TRUE), readx) %>%
+  bind_rows %>%
+  mutate(DateTime = ymd_hms(PriceUpdatedDate),
+         Date = as.Date(DateTime),
+         weekday = lubridate::wday(Date, label=TRUE)) %>%
+  dplyr::select(-PriceUpdatedDate) %>%
+  filter(Price < 500)
+```
+
+
+## Geocoding
+
+The fuel price dataset contains street addresses of all service stations, but we would like to include latitude and longitude, so that other spatial attributes can easily be looked up. Here I used Google's geocode service, as made easily available in the `ggmap` package.
+
+```{r, eval=FALSE}
+# Unique addresses to look up.
+addr <- unique(fuel$Address)
+  
+# After some failures, I found that extra info between () messes with 
+# the geocode service. Remove them.
+addr_re <- gsub("\\(.+\\)", "", addr)
+
+# Get rid of "Cnr of ...,", but not when address starts with it.
+addr_re <- gsub("(.+)(Cnr.+,)", "\\1", addr_re)
+
+# Add Australia though it seems unnecessary (?).
+addr_re <- paste(addr_re, "Australia")
+
+# Now run the service.
+gcres <- geocode(addr_re, output="latlon")
+
+# Simple dataframe as output, which can be merged onto the fuel dataset.
+locs <- data.frame(Address = addr, Address_geo = addr_re, gcres)
+
+```
+
+## Distance to nearest competitor
+
+```{r}
+
+```
+
+
+
+## Remoteness, distance to coast
+
+Eventually I want to build a model that predicts fuel price based on location, and time of year. To do so, we have to start adding some features of interest. The Atlas of Living Australia provides a 'remoteness index', which seems interesting since at first sight fuel prices are much higher for more remote locations. Though the ALA provides API services, I did this the quick way by visiting [this page](http://spatial.ala.org.au/webportal/), uploading a CSV with lat and long, and downloading a CSV file with a remoteness index, and the distance to coast.
+
+```{r, eval=FALSE}
+library(dplyr)
+library(janitor) # for clean_names
+
+# Read locations of service stations (produced above)
+locs  <- read.csv("data/Fuel_NSW_addresses_latlon.csv")
+
+# Subset of one date, to get unique locations only.
+locsub <- filter(locs, lon, lat) %>%
+  mutate(eventDate = "2016-6-1")
+
+# Save to disk...
+write.csv(locsub, "data/NSW_fuel_locations_lonlatonly.csv", row.names=FALSE)
+
+# ... so that it can be uploaded at the ALA:
+# http://spatial.ala.org.au/webportal//#
+# See that page for help on how to select variables. I just picked
+# 'remoteness', and distance to coast, which I saved again locally:
+remo <- read.csv("data/NSW_fuel_ALA_remoteness_locations.csv", stringsAsFactors = FALSE) %>%
+  clean_names %>%
+  dplyr::select(locality, latitude_original, longitude_original,
+                remoteness_index, distance_to_coast) %>%
+  rename(Address = locality,
+         lat=latitude_original,
+         lon=longitude_original,
+         remoteness=remoteness_index,
+         dist_to_coast=distance_to_coast)
+
+# And merge
+remo_m <- dplyr::select(remo, Address, remoteness, dist_to_coast)
+fuel <- left_join(fuel, remo_m, by="Address")
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
