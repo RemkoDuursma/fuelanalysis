@@ -3,9 +3,11 @@
 # https://data.nsw.gov.au/data/dataset/fuel-check
 # and saved in /rawdata
 
+# ---- load_packages ----
 pacman::p_load(readxl, dplyr, lubridate, ggmap)
 if(!dir.exists("cache"))dir.create("cache")
 
+# ---- read_fuel_raw ----
 fuelrds <- "cache/fuel.rds"
 if(!file.exists(fuelrds)){
   readx <- function(x){

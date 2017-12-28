@@ -5,13 +5,26 @@ date: "19 December 2017"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+```{r setup, include=FALSE, cache=FALSE}
+library(knitr)
+opts_chunk$set(echo = TRUE)
+read_chunk('read_andgeo_fuelprices.R')
 ```
 
 # Getting the Data
 
 The FuelCheck service in New South Wales, Australia, provides real-time data on fuel prices at service stations across the state. [This page](https://data.nsw.gov.au/data/dataset/fuel-check) contains information, as well as monthly files containing fuel prices for all service stations, for all fuel types. The first step is to download all `xlsx` files, and save them locally. We then use `readxl` to read them all, and `dplyr` to tidy things up.
+
+```{r load_packages, eval=FALSE}
+
+```
+
+And then
+
+```{r read_fuel_raw, eval=FALSE}
+
+```
+
 
 ```{r, eval=FALSE}
 library(readxl)
