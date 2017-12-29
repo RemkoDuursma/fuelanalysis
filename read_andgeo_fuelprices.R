@@ -6,12 +6,16 @@
 # ---- load_packages ----
 pacman::p_load(readxl, dplyr, lubridate, ggmap,
                SDraw, deldir, sp, rgeos, geosphere,
-               janitor)
+               janitor, magicaxis)
+
+# ---- dontshow
 if(!dir.exists("cache"))dir.create("cache")
 
 # ---- read_fuel_raw ----
-fuelrds <- "cache/fuel.rds"
-if(!file.exists(fuelrds)){
+
+# Don't have to run this, since the clean raw data is bundled
+# in the fuelpricensw package (github: remkoduursma/fuelpricensw)
+if(FALSE){
   readx <- function(x){
     res <-  read_excel(x)
     if(names(res)[2] == "X__1"){
@@ -32,15 +36,13 @@ if(!file.exists(fuelrds)){
            Date = as.Date(DateTime)) %>%
     dplyr::select(-PriceUpdatedDate) %>%
     filter(Price < 500)
-  saveRDS(fuel, fuelrds)
-} else {
-  fuel <- readRDS(fuelrds)
+
 }
 
 
 
 # ---- get_lat_long ----
-latcache <- "cache/station_address_latlong.rds"
+latcache <- "data/Fuel_NSW_addresses_latlon.csv"
 if(!file.exists(latcache)){
 
   # Unique addresses to look up.
@@ -61,15 +63,20 @@ if(!file.exists(latcache)){
   
   # Code not shown: run code twice on separate days,
   # since we go over the API use limit.
-  write.csv(gcres, "data/Fuel_NSW_addresses_latlon.csv", row.names=FALSE) 
+  write.csv(gcres, latcache, row.names=FALSE) 
   
 }
 
 
 # ---- filter_locs ----
-locs <- read.csv("data/Fuel_NSW_addresses_latlon.csv", stringsAsFactors = FALSE) %>%
+locs <- read.csv(latcache, stringsAsFactors = FALSE) %>%
   filter(lon > 120) %>%
   dplyr::select(-Address_geo)
+
+
+# ---- dontshow
+library(fuelpricensw)
+data(fuel)
 
 
 # ---- nearest_neighbours
@@ -77,25 +84,22 @@ library(sp)
 library(rgeos)
 library(geosphere)
 
-# Copy of simple dataframe 'locs', to a SpatialPointsDataframe
+# Copy of simple dataframe 'locs', to a SpatialPointsDataframe.
+# Note how we assign new variables to 'locs', which is a simple 
+# dataframe.
 locs_sp <- locs
 coordinates(locs_sp) <- ~lon+lat
 
 # From geosphere, the correct way to calculate distances between spatial coordinates.
-d <- distm(locs_sp)
+geo_dist <- distm(locs_sp)
 
 # How many other service stations <5km away
 countd <- function(x, dist)length(x[x < dist])
-locs_sp$nr_5km <- apply(d, 1, countd, d = 5000)
-
-# nxn distance matrix
-mdist <- gDistance(locs_sp, byid=TRUE)
+locs$nr_5km <- apply(geo_dist, 1, countd, d = 5000)
 
 # Dist to nearest service station
 min2 <- function(x)min(x[x > 0])  # exclude self; x > 0 
-locs_sp$dist_1 <- apply(mdist, 1, min2)
-
-
+locs$dist_1 <- apply(geo_dist, 1, min2)
 
 
 # ---- plain_voronoi

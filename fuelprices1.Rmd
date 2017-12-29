@@ -11,6 +11,21 @@ opts_chunk$set(echo = TRUE, eval=FALSE)
 read_chunk('read_andgeo_fuelprices.R')
 ```
 
+```{r getdata_prep, include=FALSE, eval=FALSE}
+# Do this once or when needed (one minute)
+source("read_andgeo_fuelprices.R")
+save.image("cache/fuel_objects.RData")
+```
+
+```{r loaddata, include=FALSE, eval=TRUE}
+load("cache/fuel_objects.RData")
+```
+
+```{r loadpackages}
+pacman::p_load(oz, magicaxis)
+```
+
+
 # Getting the Data
 
 The FuelCheck service in New South Wales, Australia, provides real-time data on fuel prices at service stations across the state. [This page](https://data.nsw.gov.au/data/dataset/fuel-check) contains information, as well as monthly files containing fuel prices for all service stations, for all fuel types. The first step is to download all `xlsx` files, and save them locally. We then use `readxl` to read them all, and `dplyr` to tidy things up.
@@ -57,14 +72,14 @@ Get rid of USA addresses. When geocode does not find a good match, Google return
 ```
 
 
-```{r}
-# # Figure
-# hist(log10(locs$dist_1), breaks=100, axes=F,
-#      xlab="Distance to nearest service station (some degree unit)")
-# library(magicaxis)
-# magaxis(side=1, unlog=1)
-# axis(2)
+The distance to the nearest next service station peaks at 1km (1000m). The most remote service station appears to be `r locs[which.max(locs$dist_1),"Address"]`, though recall geocoding failed for some stations, so we don't have distance to all stations.
 
+```{r}
+hist(log10(locs$dist_1), breaks=100, axes=FALSE,
+     main="", col="cornflowerblue",
+     xlab="Distance to nearest service station (m)")
+magicaxis::magaxis(side=1, unlog=1)
+axis(2)
 ```
 
 ## Area served : Voronoi polygons
@@ -73,12 +88,11 @@ Get rid of USA addresses. When geocode does not find a good match, Google return
 ```{r plain_voronoi}
 ```
 
-```{r}
-# Edge effect:
-# windows(12,10)
-# with(locs, plot(lon, lat, pch=16, col="red"))
-# plot(v, wlines="tess", wpoints="none", lty=1, col="grey", add=TRUE)
-# with(locs, points(lon, lat, pch=16, col="red"))
+```{r fig.width=10, fig.height=8}
+par(mar=c(3,3,1,1))
+with(locs, plot(lon, lat, pch=16, col="red", xlab="", ylab=""))
+plot(v, wlines="tess", wpoints="none", lty=1, col="grey", add=TRUE)
+with(locs, points(lon, lat, pch=16, col="red"))
 
 ```
 
@@ -88,18 +102,16 @@ Get rid of USA addresses. When geocode does not find a good match, Google return
 
 
 ```{r}
-# Edge effect solved
-# par(mar=c(0,0,0,0))
-# plot(z)
+par(mar=c(0,0,0,0))
+plot(z)
 ```
 
 
 ```{r}
-# # Figure
-# library(oz)
-# 
-# oz(sections=c(4,13:15))
-# with(locs, points(lon,lat,pch=19, col=rev(heat.colors(10))[cut(log(area_voronoi),10)]))
+library(oz)
+
+oz(sections=c(4,13:15))
+with(locs, points(lon,lat,pch=19, col=rev(heat.colors(10))[cut(log(area_voronoi),10)]))
 
 ```
 
@@ -114,11 +126,10 @@ Eventually I want to build a model that predicts fuel price based on location, a
 
 ```{r}
 # Figure
-# windows(6,5)
-# library(oz)
-# oz(sections=c(4, 13:15))
-# cols <- colorRampPalette(c("yellow","darkorange","red"))(10)
-# with(remo, points(lon,lat, pch=19, col=cols[cut(log(remoteness+1), 10)]))
+library(oz)
+oz(sections=c(4, 13:15))
+cols <- colorRampPalette(c("yellow","darkorange","red"))(10)
+with(remo, points(lon,lat, pch=19, col=cols[cut(log(remoteness+1), 10)]))
 
 ```
 
