@@ -4,7 +4,9 @@
 # and saved in /rawdata
 
 # ---- load_packages ----
-pacman::p_load(readxl, dplyr, lubridate, ggmap)
+pacman::p_load(readxl, dplyr, lubridate, ggmap,
+               SDraw, deldir, sp, rgeos, geosphere,
+               janitor)
 if(!dir.exists("cache"))dir.create("cache")
 
 # ---- read_fuel_raw ----
@@ -37,46 +39,40 @@ if(!file.exists(fuelrds)){
 
 
 
-#----- Get lat-long
-
+# ---- get_lat_long ----
 latcache <- "cache/station_address_latlong.rds"
 if(!file.exists(latcache)){
 
+  # Unique addresses to look up.
   addr <- unique(fuel$Address)
   
-  # Get rid of anything in ()
+  # After some failures, I found that extra info between () messes with 
+  # the geocode service. Remove them.
   addr_re <- gsub("\\(.+\\)", "", addr)
   
-  # Get rid of "Cnr of ...,", but not when address starts with that!
+  # Get rid of "Cnr of ...,", but not when address starts with it.
   addr_re <- gsub("(.+)(Cnr.+,)", "\\1", addr_re)
   
   # Add Australia though it seems unnecessary
   addr_re <- paste(addr_re, "Australia")
   
-  # Hopefully don't go over API limit
+  # Now run the service.
   gcres <- geocode(addr_re, output="latlon")
   
-  # 
-  saveRDS(data.frame(Address = addr, Address_geo = addr_re, gcres),
-          latcache)
+  # Code not shown: run code twice on separate days,
+  # since we go over the API use limit.
+  write.csv(gcres, "data/Fuel_NSW_addresses_latlon.csv", row.names=FALSE) 
   
-  # Extra: done after two step-geolookingup
-  #write.csv(gcres, "data/Fuel_NSW_addresses_latlon.csv", row.names=FALSE)
 }
 
 
-
-# Get rid of USA addresses.
-# could also do
-# options(geonamesUsername="remkoduursma")
-# # and enable on geonames.org/manageaccounts
-# GNcountryCode(g[1], g[2])
+# ---- filter_locs ----
 locs <- read.csv("data/Fuel_NSW_addresses_latlon.csv", stringsAsFactors = FALSE) %>%
   filter(lon > 120) %>%
   dplyr::select(-Address_geo)
 
 
-#----- Nearest neighbours.
+# ---- nearest_neighbours
 library(sp)
 library(rgeos)
 library(geosphere)
@@ -88,6 +84,10 @@ coordinates(locs_sp) <- ~lon+lat
 # From geosphere, the correct way to calculate distances between spatial coordinates.
 d <- distm(locs_sp)
 
+# How many other service stations <5km away
+countd <- function(x, dist)length(x[x < dist])
+locs_sp$nr_5km <- apply(d, 1, countd, d = 5000)
+
 # nxn distance matrix
 mdist <- gDistance(locs_sp, byid=TRUE)
 
@@ -95,57 +95,40 @@ mdist <- gDistance(locs_sp, byid=TRUE)
 min2 <- function(x)min(x[x > 0])  # exclude self; x > 0 
 locs_sp$dist_1 <- apply(mdist, 1, min2)
 
-# # Figure
-# hist(log10(locs$dist_1), breaks=100, axes=F,
-#      xlab="Distance to nearest service station (some degree unit)")
-# library(magicaxis)
-# magaxis(side=1, unlog=1)
-# axis(2)
-
-# how many other service stations <5km away (i.e. circle with diam=10km)
-countd <- function(x, d)length(x[x < d])
-locs_sp$nr_5km <- apply(d, 1, countd, d=5000)
 
 
 
-#----- Voronois
+# ---- plain_voronoi
 library(deldir)
 v <- deldir(locs$lon, locs$lat)
 
-# Edge effect:
-# windows(12,10)
-# with(locs, plot(lon, lat, pch=16, col="red"))
-# plot(v, wlines="tess", wpoints="none", lty=1, col="grey", add=TRUE)
-# with(locs, points(lon, lat, pch=16, col="red"))
+
+# ---- buffer_voronoi
 
 # Make NSW polygon
+# Similar to oz::oz(), but coordinates are ordered by state.
 oz2 <- read.csv("http://www.remkoduursma.com/files/ozdata.csv")
 nsw <- filter(oz2, state == "NSW") %>%
   dplyr::select(long, lat) %>% as.data.frame
 
+# Convert to SpatialPolygonsDataframe
 coordinates(nsw) <- ~long + lat
-
 nswp <- Polygon(nsw)
 nswpg <- SpatialPolygons(list(Polygons(list(NSW=nswp), "NSW")))
 
 # Using a zero-width buffer cleans up many topology problems in R.
-nswpg <- gBuffer(nswpg, byid=TRUE, width=0)
+nswpg <- rgeos::gBuffer(nswpg, byid=TRUE, width=0)
 
-
-# we use the coordinates returned by voronoi,
-# because for some reason a few dozen polygons cannot be computed,
-# perhaps some coordinates are identical??
+# We use the coordinates returned by voronoi to assign voronoi
+# areas for each service station, because for some reason a few dozen 
+# polygons cannot be computed (so simple cbind is not possible).
 coorsx <- v$summary[,c("x","y")]
 coordinates(coorsx) <- ~x+y
 
+# Voronoi polygons with a 
 library(SDraw)
 vp <- voronoi.polygons(coorsx)
-
 z <- gIntersection(vp, nswpg, byid=TRUE)
-
-# Edge effect solved
-# par(mar=c(0,0,0,0))
-# plot(z)
 
 # Now lookup area of each polygon
 # We have to do this the hard way, because not all polygons
@@ -174,19 +157,23 @@ locs$area_voronoi <- area
 
 
 
-#---- Remoteness
+# ---- remoteness ----
 library(dplyr)
 library(janitor)
 
+# Subset of one date, to get unique locations only.
 # The ALA service wants a Date added to the dataframe,
 # since remoteness is a time-dependent variable. 
 locsub <- filter(locs, lon, lat) %>%
   mutate(eventDate = "2016-6-1")
 
+# Save to disk...
 write.csv(locsub, "data/NSW_fuel_locations_lonlatonly.csv", row.names=FALSE)
 
-# remoteness index from ALA
-#http://spatial.ala.org.au/webportal//#
+# ... so that it can be uploaded at the ALA:
+# http://spatial.ala.org.au/webportal//#
+# See that page for help on how to select variables. I just picked
+# 'remoteness', and distance to coast, which I saved again locally:
 remo <- read.csv("data/NSW_fuel_ALA_remoteness_locations.csv", stringsAsFactors = FALSE) %>%
   clean_names %>%
   dplyr::select(locality, latitude_original, longitude_original,
@@ -203,22 +190,14 @@ remo_m <- dplyr::select(remo, Address, remoteness, dist_to_coast)
 locs <- left_join(locs, remo_m, by="Address")
 
 
+
+# ---- dontrun
+
 saveRDS(locs, "cache/locs.rds")
-# Figure
-# windows(6,5)
-# library(oz)
-# oz(sections=c(4, 13:15))
-# cols <- colorRampPalette(c("yellow","darkorange","red"))(10)
-# with(remo, points(lon,lat, pch=19, col=cols[cut(log(remoteness+1), 10)]))
 
 
-# # Figure
-# library(oz)
-# 
-# oz(sections=c(4,13:15))
-# with(locs, points(lon,lat,pch=19, col=rev(heat.colors(10))[cut(log(area_voronoi),10)]))
 
-#----- Final merge
+#----- final_merge
 fuel <- left_join(fuel, locs, by="Address")
 
 
