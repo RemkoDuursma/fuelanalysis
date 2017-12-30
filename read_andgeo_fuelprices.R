@@ -1,4 +1,6 @@
 
+if(!dir.exists("cache"))dir.create("cache")
+
 # xlsx downloaded from:
 # https://data.nsw.gov.au/data/dataset/fuel-check
 # and saved in /rawdata
@@ -7,9 +9,6 @@
 pacman::p_load(readxl, dplyr, lubridate, ggmap,
                SDraw, deldir, sp, rgeos, geosphere,
                janitor, magicaxis)
-
-# ---- dontshow
-if(!dir.exists("cache"))dir.create("cache")
 
 # ---- read_fuel_raw ----
 
@@ -74,12 +73,12 @@ locs <- read.csv(latcache, stringsAsFactors = FALSE) %>%
   dplyr::select(-Address_geo)
 
 
-# ---- dontshow
+# ---- dontshow ----
 library(fuelpricensw)
 data(fuel)
 
 
-# ---- nearest_neighbours
+# ---- nearest_neighbours ----
 library(sp)
 library(rgeos)
 library(geosphere)
@@ -102,12 +101,12 @@ min2 <- function(x)min(x[x > 0])  # exclude self; x > 0
 locs$dist_1 <- apply(geo_dist, 1, min2)
 
 
-# ---- plain_voronoi
+# ---- plain_voronoi ----
 library(deldir)
-v <- deldir(locs$lon, locs$lat)
+voro_plain <- deldir(locs$lon, locs$lat)
 
 
-# ---- buffer_voronoi
+# ---- buffer_voronoi ----
 
 # Make NSW polygon
 # Similar to oz::oz(), but coordinates are ordered by state.
@@ -126,13 +125,13 @@ nswpg <- rgeos::gBuffer(nswpg, byid=TRUE, width=0)
 # We use the coordinates returned by voronoi to assign voronoi
 # areas for each service station, because for some reason a few dozen 
 # polygons cannot be computed (so simple cbind is not possible).
-coorsx <- v$summary[,c("x","y")]
+coorsx <- voro_plain$summary[,c("x","y")]
 coordinates(coorsx) <- ~x+y
 
 # Voronoi polygons with a 
 library(SDraw)
 vp <- voronoi.polygons(coorsx)
-z <- gIntersection(vp, nswpg, byid=TRUE)
+voro_buffer <- gIntersection(vp, nswpg, byid=TRUE)
 
 # Now lookup area of each polygon
 # We have to do this the hard way, because not all polygons
@@ -141,8 +140,9 @@ get_area <- function(point, spoly){
   g <- gContains(spoly, point, byid=TRUE)
   if(any(g)){
     pol <- spoly[which(g)]
-    if(!length(which(g)))browser()
-    if(!is.null(pol))gArea(pol)
+    if(!is.null(pol)){
+      geosphere::areaPolygon(pol)
+    }
   } else {
     NA
   }
@@ -152,10 +152,10 @@ get_area <- function(point, spoly){
 # Note that `apply` won't work with a SpatialPointsDataframe,
 # at least not like this.
 area <- c()
-for(i in 1:length(locs_sp))area[i] <- get_area(locs_sp[i,], spoly=z)
+for(i in 1:length(locs_sp))area[i] <- get_area(locs_sp[i,], spoly=voro_buffer)
 
 # Add to 'locs' dataframe with locations of Service Stations.
-locs$area_voronoi <- area  
+locs$area_voronoi <- area
 
 
 
@@ -183,10 +183,11 @@ remo <- read.csv("data/NSW_fuel_ALA_remoteness_locations.csv", stringsAsFactors 
   dplyr::select(locality, latitude_original, longitude_original,
                 remoteness_index, distance_to_coast) %>%
   rename(Address = locality,
-         lat=latitude_original,
-         lon=longitude_original,
-         remoteness=remoteness_index,
-         dist_to_coast=distance_to_coast)
+         lat = latitude_original,
+         lon = longitude_original,
+         remoteness = remoteness_index,
+         dist_to_coast = distance_to_coast) %>%
+  mutate(dist_to_coast = 100 * dist_to_coast)
 write.csv(remo, "data/NSW_fuel_ALA_remoteness_locations_cleaned.csv", row.names=F)
 
 # And merge onto 'locs'.
@@ -194,14 +195,7 @@ remo_m <- dplyr::select(remo, Address, remoteness, dist_to_coast)
 locs <- left_join(locs, remo_m, by="Address")
 
 
-
-# ---- dontrun
-
-saveRDS(locs, "cache/locs.rds")
-
-
-
-#----- final_merge
+#---- final_merge ----
 fuel <- left_join(fuel, locs, by="Address")
 
 
