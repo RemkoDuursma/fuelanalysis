@@ -1,13 +1,14 @@
 ---
-title: "Fuel prices in NSW - Part 1"
+title: "Petrol prices in New South Wales - Part 1"
 author: "Remko Duursma"
 date: "19 December 2017"
 output: html_document
 ---
 
+
 ```{r setup, include=FALSE, cache=FALSE}
 library(knitr)
-opts_chunk$set(echo = TRUE, eval=FALSE)
+opts_chunk$set(echo = TRUE, eval=FALSE, dpi=300)
 read_chunk('read_andgeo_fuelprices.R')
 ```
 
@@ -21,9 +22,72 @@ save.image("cache/fuel_objects.RData")
 load("cache/fuel_objects.RData")
 ```
 
-```{r loadpackages, eval=TRUE}
-pacman::p_load(dplyr, oz, magicaxis, deldir, rgeos)
+```{r loadpackages, eval=TRUE, include=FALSE}
+pacman::p_load(dplyr, oz, magicaxis, deldir, rgeos, ggplot2, gridExtra)
 ```
+
+### *How do petrol prices vary across the state?*
+
+The price of fuel at service stations varies tremendously, both in space - across the large Australian state of New South Wales, and time - with surprising patterns. In this post I begin my quest to understand how fuel price varies, what factors explain its fluctuation over time and spatial variation. Obviously it would be nice to be able to know where to drive for cheaper fuel (what kind of areas are cheaper?), and when to fill up (should I wait until Thursday?).
+
+Since August 2016, the NSW government runs the [FuelCheck service](https://www.fuelcheck.nsw.gov.au/app), which allows monitoring of fuel prices *in real time*. Several apps tap into this publicly available API, allowing users to find the cheapest fuel in the neighborhood, or inspect some simple graphs of fuel price over time.
+
+As an additional service, (nearly) daily prices of all types of fuel, all brands of service stations, and **all locations** across the state can be downloaded from the [NSW Data portal](https://data.nsw.gov.au/), currently from August 2016 to October 2017. The dataset contains over one million records, for over 2000 service stations, and 11 fuel types. 
+
+
+![](img/fuelcheck_web.png)
+
+### Approach
+
+This is the first in a series of posts on this hobby project to find out if we can *predict fuel prices in space and time*. What I want to know is:
+
+- Is fuel cheaper on a particular day of the week? It is a widely-held belief that fuel prices are more expensive on the day that everyone receives their weekly paycheck (Thursday), but do the data support this? 
+
+- Across the state, how does fuel price vary and why? Quick inspection of the data shows that remote areas are more expensive; how do we summarize that, and what else matters? As roughly 5 out of 7.5 million people in NSW live in the Sydney metropolitan area - that is two thirds of the population on 1.5% of the land area - I will look at Sydney and non-Sydney data separately for much of this analysis.
+
+Instead of just showing results, these posts are very much about getting into the details of the R code to generate them. 
+
+But before we get started, here is a taste of what's to come:
+
+
+```{r figure1, echo=FALSE, fig.width=9, fig.height=5}
+
+library(dplyr)
+metro <- filter(fuel, Address %in% c("741 George St, Windsor South NSW 2756",
+                                  "552 Pennant Hills Road, West Pennant Hills NSW 2125"))
+
+remot <- filter(fuel, Address %in% c("1 Blende St, Broken Hill NSW 2880",
+                                     "119 Bourke St Cnr Erskine St, Dubbo NSW 2830"))
+
+
+library(ggplot2)
+
+
+g1 <- filter(metro, FuelCode == "U91") %>%
+  ggplot(aes(x=Date, y=Price, col=Address)) +
+  geom_line() +
+  geom_point(size=1) +
+  theme_bw() +
+  theme(legend.position="none")
+                                  
+g2 <- filter(remot, FuelCode == "U91") %>%
+  ggplot(aes(x=Date, y=Price, col=Address)) +
+  geom_line() +
+  geom_point(size=1) +
+  theme_bw() +
+  theme(legend.position="none")
+
+library(gridExtra)
+grid.arrange(g1, g2, ncol=2)
+
+```
+
+
+The data show a fluctuation in fuel prices [that is known](https://www.accc.gov.au/consumers/petrol-diesel-lpg/petrol-price-cycles#petrol-prices-in-sydney), but are not at all weekly. 
+
+
+
+
 
 
 # Getting the Data
