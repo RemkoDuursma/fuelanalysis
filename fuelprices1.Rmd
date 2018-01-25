@@ -50,44 +50,43 @@ Instead of just showing results, these posts are very much about getting into th
 But before we get started, here is a taste of what's to come:
 
 
-```{r figure1, echo=FALSE, fig.width=9, fig.height=5}
+```{r figure1, echo=FALSE, fig.width=8, fig.height=4, eval=TRUE, out.width="800px"}
 
 library(dplyr)
-metro <- filter(fuel, Address %in% c("741 George St, Windsor South NSW 2756",
-                                  "552 Pennant Hills Road, West Pennant Hills NSW 2125"))
-
-remot <- filter(fuel, Address %in% c("1 Blende St, Broken Hill NSW 2880",
-                                     "119 Bourke St Cnr Erskine St, Dubbo NSW 2830"))
+fuelsub <- filter(fuel, Address %in% c("741 George St, Windsor South NSW 2756",
+                                  "552 Pennant Hills Road, West Pennant Hills NSW 2125",
+                                  "1 Blende St, Broken Hill NSW 2880",
+                                  "119 Bourke St Cnr Erskine St, Dubbo NSW 2830")) %>%
+  mutate(location = case_when(
+    grepl("Windsor|Pennant", Address) ~ "Sydney",
+    TRUE ~ "Outback"
+  ))
 
 
 library(ggplot2)
 
-
-g1 <- filter(metro, FuelCode == "U91") %>%
+filter(fuelsub, FuelCode == "U91") %>%
   ggplot(aes(x=Date, y=Price, col=Address)) +
   geom_line() +
   geom_point(size=1) +
   theme_bw() +
-  theme(legend.position="none")
-                                  
-g2 <- filter(remot, FuelCode == "U91") %>%
-  ggplot(aes(x=Date, y=Price, col=Address)) +
-  geom_line() +
-  geom_point(size=1) +
-  theme_bw() +
-  theme(legend.position="none")
-
-library(gridExtra)
-grid.arrange(g1, g2, ncol=2)
-
+  theme(legend.position="none") +
+  facet_wrap(~location) +
+  scale_colour_manual(values=c("blue2","cornflowerblue","red2","darkorange")) +
+  labs(x="", y="Fuel price (U91) ($ cents)")
 ```
 
 
-The data show a fluctuation in fuel prices [that is known](https://www.accc.gov.au/consumers/petrol-diesel-lpg/petrol-price-cycles#petrol-prices-in-sydney), but are not at all weekly. 
+The data show a fluctuation in fuel prices [that is known](https://www.accc.gov.au/consumers/petrol-diesel-lpg/petrol-price-cycles#petrol-prices-in-sydney), but are not at all weekly. Zooming in on a two-month period in 2017, we see the peculiar pattern of a very sudden jump in fuel prices, followed by a gradual decline over the period of a month or so.
 
-
-
-
+```{r, eval=TRUE, echo=FALSE, fig.width=6, fig.height=5, out.width="500px"}
+filter(fuel, Date > as.Date("2017-4-25") & Date < as.Date("2017-8-1"),
+       Address == "105 Station Rd Cnr Powers St, Seven Hills NSW 2147",
+        FuelCode == "U91") %>%
+  ggplot(aes(x=Date, y=Price)) +
+  geom_line() + geom_point() + theme_bw() +
+  labs(x="", y="Fuel price (U91) ($ cents)")
+```
 
 
 # Getting the Data
@@ -116,13 +115,13 @@ data(fuel)
 
 ## Geocoding
 
-The fuel price dataset contains street addresses of all service stations, but we would like to include latitude and longitude, so that other spatial attributes can easily be looked up. Here I used Google's geocode service, as made easily available in the `ggmap` package.
+The fuel price dataset contains street addresses of all service stations, but we would like to include latitude and longitude, so that other spatial attributes can easily be looked up. Here I used Google's geocode service, as made easily available in the `ggmap` package. The service does not always return a proper result, even though when typing in the same address in `maps.google.com` might give the right address.
 
 ```{r get_lat_long}
 
 ```
 
-Get rid of USA addresses. When geocode does not find a good match, Google returns some random address in the USA. Better approaches exist here, like the geonames service to find the country code.
+Get rid of USA addresses. When geocode does not find a good match, Google returns some random address in the USA (even when we paste 'Australia' at the end!). Better approaches exist here, like the geonames service to find the country code, and filter that way, but here this suffices.
 
 ```{r filter_locs}
  
@@ -138,7 +137,7 @@ Get rid of USA addresses. When geocode does not find a good match, Google return
 
 The distance to the nearest next service station peaks at 1km (1000m). The most remote service station appears to be `r locs[which.max(locs$dist_1),"Address"]`, though recall geocoding failed for some stations, so we don't have distance to all stations.
 
-```{r hist_dist_1, eval=TRUE}
+```{r hist_dist_1, eval=TRUE, out.width="500px"}
 hist(log10(locs$dist_1), breaks=100, axes=FALSE,
      main="", col="cornflowerblue",
      xlab="Distance to nearest service station (m)")
@@ -152,7 +151,7 @@ axis(2)
 ```{r plain_voronoi}
 ```
 
-```{r voro_plain_fig, fig.width=10, fig.height=8, eval=TRUE}
+```{r voro_plain_fig, fig.width=10, fig.height=8, eval=TRUE, out.width="700px"}
 par(mar=c(3,3,1,1))
 plot(voro_plain, wlines="tess", wpoints="real", 
      lty=1, col=c("black","grey","red","black","black"),
@@ -166,7 +165,7 @@ box()
 ```
 
 
-```{r buffer_voronoi_fig, eval=TRUE}
+```{r buffer_voronoi_fig, eval=TRUE, out.width="700px"}
 par(mar=c(0,0,0,0))
 plot(voro_buffer)
 with(locs, points(lon, lat, pch=19, cex=0.5,
