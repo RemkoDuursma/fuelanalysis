@@ -299,7 +299,7 @@ cycsyd_a$POA <- as.numeric(gsub(".+(NSW )([0-9]{4})","\\2", as.character(cycsyd_
 
 cycsyd_a <- left_join(cycsyd_a, seifa, by="POA")
 
-
+# !! but not price_peak_median
 filter(cycsyd_a, price_low_median < 125) %>%
   ggplot(aes(x=seifa_score, y=price_low_median, col=Brand2)) + 
     geom_point() +
@@ -309,6 +309,17 @@ filter(cycsyd_a, price_low_median < 125) %>%
 
 
 
+
+
+
+# oil prices?
+# http://www.abc.net.au/news/2017-03-22/how-oil-prices-are-saving-you-money/8373380
+# http://www.aip.com.au/resources
+
+# here (old)
+# https://industry.gov.au/Office-of-the-Chief-Economist/Publications/Pages/Australian-petroleum-statistics.aspx
+# here !!
+# https://www.energy.gov.au/government-priorities/energy-data/australian-petroleum-statistics
        
        
        
