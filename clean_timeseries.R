@@ -293,7 +293,22 @@ ggplot(fuelu91syd_ave, aes(x=Date, y=Price_k3, col=Brand2)) +
 
 
 
+seifa <- read.csv("data/aus_seifa_2011_by_postcode.csv")
+
+cycsyd_a$POA <- as.numeric(gsub(".+(NSW )([0-9]{4})","\\2", as.character(cycsyd_a$Address)))
+
+cycsyd_a <- left_join(cycsyd_a, seifa, by="POA")
+
+
+filter(cycsyd_a, price_low_median < 125) %>%
+  ggplot(aes(x=seifa_score, y=price_low_median, col=Brand2)) + 
+    geom_point() +
+    geom_smooth(se=FALSE) +
+    scale_colour_manual(values=RColorBrewer::brewer.pal(7,"Set3")) +
+  theme_bw()
 
 
 
-
+       
+       
+       
