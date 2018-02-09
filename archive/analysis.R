@@ -1,233 +1,190 @@
 
-pacman::p_load(readxl, dplyr, lubridate, ggplot2, 
-               gplots, zoo, ggmap, data.table, janitor)
 
-if(!dir.exists("cache"))dir.create("cache")
+# devtools::install_github("remkoduursma/fuelpricensw")
+library(fuelpricensw)
+data(fuel)
 
+locs <- readRDS("cache/locs.rds")
 
-ala <- read.csv("NSW_fuel_ALA_remoteness_locations_cleaned.csv",
-                stringsAsFactors = FALSE)
-ala_m <- dplyr::select(ala, -lat, -lon)
+library(dplyr)
 
+fuel_sub <- filter(fuel, FuelCode %in% c("E10","P95","P98","U91"))
 
-fuel <- fread("NSW_fuelprices_with_latlon.csv") %>%
-  clean_names %>%
-  left_join(ala_m, by="address") %>%
-  mutate(date = as.Date(date),
-         datetime = ymd_hms(datetime))
+fuel_sub_a <- group_by(fuel_sub, Address, FuelCode, Date) %>%
+  summarize(Price = mean(Price, na.rm=TRUE),
+            ServiceStationName = first(ServiceStationName),
+            Brand = first(Brand)) %>%
+  ungroup
 
 
-fuel91s <- filter(fuel, fuelcode == "U91") %>%
-  group_by(address) %>%
-  summarize(price = median(price, na.rm=TRUE),
-            remote=median(remoteness),
-            dist_to_coast=median(dist_to_coast))
-
-with(fuel91s, plot(log(remote+1), price,
-                   ylim=c(100,150)))
-abline(lm(price ~ I(log(remote+1)), data=fuel91s))
-
-
-
-library(sp)
-library(rgeos)
-library(geosphere)
-locs <- ala[,c("address","lon","lat")]
-coordinates(locs) <- ~lon+lat
-d <- distm(locs)
-
-# nxn distance matrix
-mdist <- gDistance(locs, byid=TRUE)
-
-# Dist to nearest service station
-min2 <- function(x)min(x[x > 0])  # exclude self; x > 0 
-locs$dist_1 <- apply(mdist, 1, min2)
-
-# Figure
-hist(log10(locs$dist_1), breaks=100, axes=F,
-     xlab="Distance to nearest service station (some degree unit)")
-library(magicaxis)
-magaxis(side=1, unlog=1)
-axis(2)
-
-
-# how many other service stations <5km away (i.e. circle with diam=10km)
-countd <- function(x, d)length(x[x < d])
-locs$nr5 <- apply(d, 1, countd, d=5000)
-
-# Figure
-hist(locs$nr5, main="")
-title(main="how many other service stations\n <5km away (i.e. circle with diam=10km)")
-
-# then finally (to add lon lat back in!)
-locs <- as.data.frame(locs)
-
-
-# probably focus on only top four fuel types
-sort(table(fuel$fuelcode))
-
-# probably use brand as a predictor, but combine all the minor ones (?), with forcats
-sort(table(fuel$brand))
-
-
-#-- New subset, only major fuels.
-fuel2 <- filter(fuel, fuelcode %in% c("P95","U91","P98","E10"))
-hist(fuel2$price)
-
-# would like to use weekday as predictor, but be careful of imbalance:
-table(fuel2$weekday)
-
-
-# imbalance differ with brand? fuel type?
-
-# other layers
-# - population density (covered by remoteness though)
-# - income levels
-# - distance to major road (pennant hills effect)
-
-
-
-
-# how about some voronois
-library(deldir)
-
-coors <- fuel2[,c("address","lon", "lat")] %>%
-  distinct(address, .keep_all=TRUE) %>%
-  rename(x=lon, y=lat) %>%
-  filter(!is.na(x))
-v <- deldir(coors)
-
-
-# voronois
-windows(12,10)
-with(coors, plot(x,y,pch=16, col="red"))
-plot(v, wlines="tess", wpoints="none", lty=1, col="grey", add=TRUE)
-with(coors, points(x,y,pch=16, col="red"))
-# !! problem: edge effects are enormous... should be some way to trim
-# the voronois
-
-
-# so instead use SDraw::voronoi.polygons(., bounding.polygon=)
-
-
-oz2 <- read.csv("http://www.remkoduursma.com/files/ozdata.csv")
-nsw <- filter(oz2, state == "NSW") %>%
-  dplyr::select(long, lat) %>% as.data.frame
-
-coordinates(nsw) <- ~long + lat
-
-nswp <- Polygon(nsw)
-nswpg <- SpatialPolygons(list(Polygons(list(NSW=nswp), "NSW")))
-
-
-# Using a zero-width buffer cleans up many topology problems in R.
-nswpg <- gBuffer(nswpg, byid=TRUE, width=0)
-
-
-# we use the coordinates returned by voronoi,
-# because for some reason a few dozen polygons cannot be computed,
-# perhaps some coordinates are identical??
-coorsx <- v$summary[,c("x","y")]
-coordinates(coorsx) <- ~x+y
-
-
-# spatial points object with square observation window
-xy  <- as.data.frame(coorsx)
-library(spatstat)
-pp <- ppp(xy[,1],xy[,2],
-          xrange=c(min(xy$x),max(xy$x)),
-          yrange=c(min(xy$y),max(xy$y)))
-plot(pp)
-
-
-# with NSW as observation window
-library(maptools)
-nsw_owin <- as(nswpg, "owin")
-pp <- ppp(xy[,1],xy[,2],
-          window=nsw_owin)
-plot(pp)
-
-# density plot
-plot(density(pp))
-
-# quadrant count
-qc_nsw <- quadratcount(pp, nx=8, ny=5)
-plot(qc_nsw)
-
-
-# intensity of quadrat count
-qc_nsw_int <- intensity(qc_nsw, image=TRUE)
-plot(qc_nsw_int)
-
-# Ripley's K
-pp_k <- Kest(pp) # slow
-plot(pp_k)
-
-# too slow
-#pp_env <- envelope(pp,Kest)
-#plot(pp_env)
-
-
-#?
-fit1 <- ppm(pp, ~x)
-lam <- predict(fit1)
-
-#?
-plot(Kscaled(pp, lam))
-
-
-#---> look at strauss process
-
-
-
-#-- Voronoi polygons
-library(SDraw)
-vp <- voronoi.polygons(coorsx)
-
-z <- gIntersection(vp, nswpg, byid=TRUE)
-
-par(mar=c(0,0,0,0))
-plot(z)
-
-
-plot_i <- function(i){
-  p <- coors[i,]
-  coordinates(p) <- ~x+y
-  g <- gContains(z, p, byid=T)
-  plot(z)
-  plot(z[which(g)], add=TRUE, col="red")
-  points(p, col="blue", pch=19, cex=2)
-}
-par(mar=c(0,0,0,0))
-plot_i(860)
-
-
-
-
-get_area <- function(point, spoly){
-  g <- gContains(spoly, point, byid=T)
-  if(any(g)){
-    pol <- spoly[which(g)]
-    if(!length(which(g)))browser()
-    if(!is.null(pol))gArea(pol)
-  } else {
-    NA
-  }
-}
-
-newp <- coors
-coordinates(newp) <- ~x+y
-
-area <- c()
-for(i in 1:length(newp))area[i] <- get_area(newp[i,], spoly=z)  
-coors$area <- area  
+fuelx <- group_by(fuel_sub_a, Address, FuelCode) %>%
+  summarize(Price = median(Price, na.rm=TRUE),
+            ServiceStationName = first(ServiceStationName),
+            Brand = first(Brand),
+            n = n()) %>%
+  ungroup %>%
+  left_join(locs, by="Address")
   
 
-# Figure
-library(oz)
+boxplot(Price ~ FuelCode, data=fuelx)
 
-oz(sections=c(4,13:15))
-with(coors, points(x,y,pch=19, col=rev(heat.colors(10))[cut(log(area),10)]))
+# figure
+library(ggplot2)
+plot_address_time <- function(here){
+  
+  filter(fuel_sub, Address == here) %>%
+  ggplot(aes(x=Date, y=Price, col=FuelCode)) + geom_line() +
+    theme_bw() + geom_point() +
+    scale_colour_manual(values=gplots::rich.colors(5)) +
+    labs(title=sprintf("%s - %s", which(locs$Address == here), here))
+}
+
+plot_address_time("1403 Princes Hwy, Heathcote NSW 2233")
+
+
+plot_address_time(sample(locs$Address,1))
+
+
+#--- plotting
+
+library(ggmap)
+qmplot(lon, lat, data = locs)
+
+get_googlemap("sydney australia", zoom = 10) %>% ggmap()
+
+syd <- c(left = 150.6, bottom = -34.25, right =151.4, top = -33.5)
+mp <- get_stamenmap(syd, zoom = 10, maptype = "toner-lite")
+
+
+ggmap(mp) + geom_point(aes(x=lon, y=lat, colour=remoteness), data=locs)
+
+
+#---- hierarchical clustering
+
+# Wide format
+library(reshape2)
+d98 <- filter(fuel_sub_a, FuelCode == "P98") %>% 
+  dcast(Date ~ Address, value.var="Price")
+
+# Data only
+m98 <- d98[,-1]
+
+# Remove columns with only few observations
+ni <- sapply(m98, function(x)sum(!is.na(x)))
+m98 <- m98[, ni > 10]
 
 
 
+
+# figure; demonstrate NA filling
+# x3 <- na.fill(x, c("extend",NA,"extend"))
+# x3 <- na.spline(x3)
+# plot(x)
+# lines(x3)
+
+library(zoo)
+impute_na <- function(x){
+  x <- na.fill(x, c("extend",NA,"extend"))
+  x <- na.spline(x)
+return(x)
+}
+
+m98 <- apply(m98, 2, impute_na)
+
+# Finally, transpose because that makes more sense!
+m98 <- t(m98)
+
+# but really have to get rid of more data...
+# plot(d98[,6])
+# lines(m98[,5])
+
+
+library(cluster)
+
+dian1 <- diana(m98)
+pltree(dian1, cex = 0.6, hang = -1, main = "Dendrogram of diana")
+
+# and see dendextend package
+# dend1 <- as.dendrogram(dian1)
+# plot(dend1)
+
+clust <- cutree(dian1, k = 6)
+
+library(factoextra)
+fviz_cluster(list(data = m98, cluster = clust)) 
+
+
+km1 <- kmeans(m98, centers = 5)
+
+
+cl <- data.frame(Address = rownames(m98), cluster = km1$cluster)
+locs2 <- left_join(locs, cl, by="Address")
+
+with(locs2, plot(lon, lat, col=cluster))
+
+ggmap(mp) + geom_point(aes(x=lon, y=lat, colour=cluster), data=locs2)
+
+
+
+
+fuelx2 <- filter(fuelx, FuelCode == "P98") %>% left_join(cl, by="Address")
+
+fuelx2_syd <- filter(fuelx2, lon > syd["left"], 
+                     lon < syd["right"],
+                     lat > syd["bottom"],
+                     lat < syd["top"])
+
+fuelx2_syd$Price_sc <- as.vector(scale(fuelx2_syd$Price))
+
+library(gtools)
+fuelx2_syd$Price_cut <- quantcut(fuelx2_syd$Price, q = 5)
+
+#!!
+ggmap(mp) + 
+  stat_density2d(aes(x=lon, y=lat, fill = ..level..), 
+                 geom="polygon", 
+                 alpha=0.2,
+                 data=fuelx2_syd) + 
+  scale_fill_gradient2("Service\nStations", low = "white", mid = "yellow", high = "red") +
+  geom_point(aes(x=lon, y=lat, colour=Price_cut), data=fuelx2_syd) +
+  scale_colour_manual("Price", values=heat.colors(5))
+
++
+  scale_colour_gradient(low = "blue", high="red")
+
+
+
+ggplot(fuelx2_syd, aes(x=Brand, y=Price)) + geom_boxplot()
+
+
+
+#----- wavelets
+d1 <- filter(fuel_sub, Address == locs$Address[325], FuelCode == "E10")
+d2 <- filter(fuel_sub, Address == locs$Address[1104], FuelCode == "E10")
+  
+
+library(wavelets)
+
+x <- dwt(d1$Price, filter="haar")
+plot(x)
+
+y <- dwt(d2$Price)
+plot(y)
+
+summary(x)
+
+
+library(WaveletComp)
+
+f <- filter(fuel_sub, Address == locs$Address[325], FuelCode == "E10") %>%
+  rename(date = Date) %>%
+  dplyr::select(date, Price)
+
+a <- analyze.wavelet(f, 2)
+
+windows(8,8)
+wt.image(a)
+
+wt.avg(a)
+
+reconstruct(a)
