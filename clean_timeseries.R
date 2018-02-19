@@ -1,13 +1,15 @@
-load("cache/fuel_objects.RData")
+
+
+
+
 
 
 #----- load_packages -----
-# fuel, locs only, though!
-
+library(fuelpricensw)
 library(ggmap)
 library(sp)
 library(dplyr)
-
+library(forcats)
 
 #----- prepare_data -----
 # Get Sydney stations. Only do U91 (most commonly reported fuel type)
@@ -30,9 +32,9 @@ ggmap(syd_map) +
 
 
 # Select stations in this polygon
-in_syd <- sp::point.in.polygon(locs$lon, locs$lat,
+in_syd <- sp::point.in.polygon(fuelstations$lon, fuelstations$lat,
                            syd_vert$lon, syd_vert$lat)
-locsyd <- locs[in_syd == 1,]
+locsyd <- fuelstations[in_syd == 1,]
 
 # Sydney data
 fuelsyd <- filter(fuel, Address %in% locsyd$Address)
@@ -163,7 +165,7 @@ make_cycledf <- function(stationdata, plotit=FALSE){
 #----- make_cycled_data -----
 
 
-fuelkey <- dplyr::select(fuel, Address, Brand) %>% distinct
+fuelkey <- dplyr::select(fuel, Address, Brand, Postcode) %>% distinct
 locsyd2 <- left_join(locsyd, fuelkey, by="Address")
 
 
@@ -182,7 +184,8 @@ cycsyd_a <- group_by(cycsyd, Address) %>%
             lon = mean(lon), lat=mean(lat), 
             nr_5km = mean(nr_5km),
             Brand = first(Brand),
-            Brand2 = first(Brand2)
+            Brand2 = first(Brand2),
+            Postcode = first(Postcode)
   )
 
 
@@ -229,14 +232,23 @@ ggmap(syd_map) +
   scale_fill_manual(values=RColorBrewer::brewer.pal(7,"Set3")) 
 
 
-# one outlier (few data points?) messes up the scale
+# Nice map!
 cycsyd_a_2 <- filter(cycsyd_a, price_low_median < 125)
 ggmap(syd_map) + 
   geom_polygon(aes(x=lon,y=lat), data=syd_vert, alpha=0.15) +
-  geom_point(aes(x=lon, y=lat, fill=price_low_median), 
+  geom_point(aes(x=lon, y=lat, size=price_low_median, fill=price_low_median), 
              col="dimgrey",
-             data=cycsyd_a_2, size=3, shape=21) + 
-  scale_fill_gradientn(colours=rev(heat.colors(10))) 
+             data=cycsyd_a_2, shape=21) + 
+  #scale_size_continuous(limits=c(100, 130), breaks=seq(100, 130, by=5)) +
+  guides(color= guide_legend(), size="none") +
+  scale_fill_gradientn(colours=rev(heat.colors(10))) #, limits=c(100, 125), breaks=seq(100, 125, by=5)) 
+
+
+
+
+
+
+
 
 
 # density map of fuel stations
@@ -306,6 +318,49 @@ filter(cycsyd_a, price_low_median < 125) %>%
     geom_smooth(se=FALSE) +
     scale_colour_manual(values=RColorBrewer::brewer.pal(7,"Set3")) +
   theme_bw()
+
+
+library(sp)
+library(rgdal)
+x <- readOGR("data/poa_aust_shape")
+# windows(10,8)
+# plot(x)
+
+m <- dplyr::select(cycsyd_a, Postcode, price_low_median, price_peak_median) %>%
+  group_by(Postcode) %>%
+  summarize(price_low_median = mean(price_low_median, na.rm=TRUE),
+            price_peak_median = mean(price_peak_median, na.rm=TRUE))
+
+x <- subset(x, POA_CODE %in% m$Postcode & POA_CODE != "2646")
+x@data <- merge(x@data, m, by.x="POA_CODE", by.y="Postcode")
+
+# spplot, meh
+# 
+# 
+# # We define factor levels by cutting population into bins.
+# x$colbin <- cut(x$price_low_median, seq(105, 130, by=5))
+# 
+# # Set the palette for coloring.
+# library(RColorBrewer)
+# colpal <- brewer.pal(5, "Purples")
+# 
+# # And make the plot.
+# spplot(x, "colbin", col.regions=colpal)
+# 
+
+
+library(leaflet)
+library(htmltools)
+pal <- colorBin("YlGn", domain=x$price_low_median, bins=seq(104, 118, by=2))
+
+pop <- as.character(x$POA_CODE) %>% lapply(HTML)
+
+leaflet(data = x) %>%
+  addProviderTiles("CartoDB.Positron") %>%
+  addPolygons(fillColor = ~pal(price_low_median),
+              fillOpacity = 0.8, 
+              color = "#BDBDC3", # colour between polygons
+              weight = 1, label=pop)
 
 
 
