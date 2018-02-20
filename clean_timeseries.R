@@ -12,7 +12,7 @@ library(dplyr)
 library(forcats)
 
 #----- prepare_data -----
-# Get Sydney stations. Only do U91 (most commonly reported fuel type)
+# Get 'Sydney' stations. Homemade polygon, because 'greater sydney' is a very large area! 
 syd_map <- get_map(c(lon = 151, lat=-33.8), zoom=10)
 
 # Manually entered polygon for 'Sydney', excluding blue mountains etc.
@@ -364,7 +364,19 @@ leaflet(data = x) %>%
 
 
 
+# crude oil prices downloaed from
+#https://fred.stlouisfed.org/series/POILBREUSDM
+poil <- read.csv("data/POILBREUSDM.csv")
+poil$DATE <- as.Date(poil$DATE)
 
+
+with(poil, plot(DATE, POILBREUSDM))
+
+dcoil <- read.csv("data/DCOILWTICO.csv") %>%
+  rename(Price = DCOILWTICO, Date = DATE) %>% 
+  mutate(Date = as.Date(Date),
+         Price = as.numeric(as.character(Price))) %>%
+  filter(Date >= min(fuel$Date, na.rm=TRUE))
 
 
 # oil prices?
